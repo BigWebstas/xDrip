@@ -13,6 +13,7 @@ import com.eveningoutpost.dexdrip.models.UserError.Log;
 import com.eveningoutpost.dexdrip.utilitymodels.BgGraphBuilder;
 import com.eveningoutpost.dexdrip.utilitymodels.BgSparklineBuilder;
 import com.eveningoutpost.dexdrip.utilitymodels.Constants;
+import com.eveningoutpost.dexdrip.utilitymodels.Inevitable;
 import com.eveningoutpost.dexdrip.utilitymodels.Pref;
 import com.eveningoutpost.dexdrip.utilitymodels.SimpleImageEncoder;
 import com.getpebble.android.kit.PebbleKit;
@@ -123,8 +124,22 @@ public class PebbleDisplayTrend extends PebbleDisplayAbstract {
             messageInTransit = false;
             retries++;
             sendData();
+
+            // The inline retry above almost never wins - a phone->watch AppMessage
+            // stall usually outlasts it, and the next full attempt is a whole
+            // CGM cycle (~5 min) away. Schedule one delayed re-send so a stall
+            // that clears within ~35s still delivers this cycle's data and
+            // re-renders the watch. Debounced by id; cancelled on give-up and
+            // skipped if the transaction meanwhile succeeded.
+            Inevitable.task("pebble-trend-nack-resend", 35000, () -> {
+                if (!transactionOk && !messageInTransit) {
+                    Log.d(TAG, "receiveNack: delayed re-send attempt");
+                    startDeviceCommand();
+                }
+            });
         } else {
             Log.i(TAG, "recieveNAck: exceeded retries.  Giving Up");
+            Inevitable.kill("pebble-trend-nack-resend");
             transactionFailed = false;
             transactionOk = false;
             messageInTransit = false;
