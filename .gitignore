@@ -60,3 +60,4 @@ patches/
 .claude/
 CLAUDE.md
 GEMINI.md
+*.jks
