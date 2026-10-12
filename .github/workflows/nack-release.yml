@@ -1,0 +1,43 @@
+name: Nack Branch Release
+
+on:
+  push:
+    branches: [ feature/pebble-nack-resend ]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0   # versionName is derived from git describe
+    - uses: actions/setup-java@v4
+      with:
+        java-version: 17
+        distribution: temurin
+    - uses: gradle/actions/setup-gradle@v4
+    - name: Build unsigned release APK
+      run: ./gradlew :app:assembleProdRelease -x lint
+    - name: Sign APK
+      env:
+        KEYSTORE_B64: ${{ secrets.RELEASE_KEYSTORE_B64 }}
+        KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      run: |
+        echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+        APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+        "$APKSIGNER" sign --ks "$RUNNER_TEMP/release.jks" --ks-key-alias "$KEY_ALIAS" \
+          --ks-pass env:KEYSTORE_PASSWORD \
+          --out xdrip-nack-signed.apk app/build/outputs/apk/prod/release/app-prod-release-unsigned.apk
+    - name: Publish release
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        TAG="nack-$(date -u +%Y%m%d-%H%M)-${GITHUB_SHA::7}"
+        gh release create "$TAG" xdrip-nack-signed.apk \
+          --target "$GITHUB_SHA" --prerelease \
+          --title "Pebble NACK resend $TAG" \
+          --notes "Auto-build of feature/pebble-nack-resend @ ${GITHUB_SHA::7}"
